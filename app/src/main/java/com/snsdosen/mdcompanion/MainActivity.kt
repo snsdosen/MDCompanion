@@ -198,7 +198,10 @@ class MainActivity : ComponentActivity() {
 
                         BluetoothProfile.STATE_DISCONNECTED -> {
                             device?.let {
-                                onBluetoothDeviceDisconnected(it)
+                                //Disconnect only if the firmware update is not in progress
+                                if(updState == Protocol.MD_UPDATE_ENABLED || updState == Protocol.MD_UPDATE_DISABLED){
+                                    onBluetoothDeviceDisconnected(it)
+                                }
                             }
                         }
                     }
@@ -975,6 +978,7 @@ class MainActivity : ComponentActivity() {
 
                         //Natural way of update termination
                         stopUpdate()
+                        setChangelog("")
                     }
 
                     Protocol.MD_WRITE_ERROR -> {
@@ -995,6 +999,7 @@ class MainActivity : ComponentActivity() {
 
     private fun stopUpdate() {
         hideProgress()
+        updState = Protocol.MD_UPDATE_DISABLED
         //disconnectDevice()
     }
 

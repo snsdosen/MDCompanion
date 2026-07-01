@@ -4,8 +4,9 @@ object Protocol {
 
     //Server
     const val MD_SERVER_URL: String = "https://raw.githubusercontent.com/snsdosen"
-    const val MD_RAW_SERVER_URL: String = "https://github.com/snsdosen"
+    const val MD_REL_SERVER_URL: String = "https://github.com/snsdosen"
 
+    const val MD_DEBUG_SERVER: String = "https://172.20.10.4:8000"
 
     //MediaDev protocol
     const val MD_REQUEST: String = "XMD"

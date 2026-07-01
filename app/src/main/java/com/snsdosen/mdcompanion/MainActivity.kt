@@ -26,6 +26,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -51,9 +52,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.snsdosen.mdcompanion.protocol.Protocol
 import com.snsdosen.mdcompanion.ui.theme.MDCompanionTheme
+import kotlinx.coroutines.launch
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -66,13 +69,16 @@ import java.util.Scanner
 import java.util.UUID
 import java.util.zip.CRC32
 import java.util.zip.Checksum
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 data class DeviceInfo(
     val connected: String = "Disconnected",
     val macAddress: String = "Unknown",
     val firmware: String = "Unknown",
     val model: String = "Unknown",
-    val changelog: String = ""
+    val changelog: String = "",
+    val title: String = "MediaDev Companion"
 )
 
 class DeviceViewModel : ViewModel() {
@@ -105,7 +111,7 @@ class MainActivity : ComponentActivity() {
     private var mdProtocol: Byte = 0x0
     private var mdBuildSignature: Byte = 0x0
     private var mbBuildNumber = 0x0
-    private var mdMacAddress: String = "";
+    private var mdMacAddress: String = ""
 
     //Available update info
     private var updFirmware: Byte = 0x0
@@ -113,6 +119,9 @@ class MainActivity : ComponentActivity() {
     private var updProgress = 0
     private var updChecksum: Long = 0
     private var updPartition: Byte = 0
+
+    private var dbgClickCount = 0
+    private var dbgUnlocked = false
 
     //Update binary
     lateinit var updBinary: ByteArray
@@ -252,6 +261,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun onTopBarClick(){
+        //Unlock debug mode for unrestricted firmware update
+        if(dbgClickCount < 10)dbgClickCount++;
+        else if(!dbgUnlocked) {
+            dbgUnlocked = true
+            deviceInfo = deviceInfo.copy(
+                title = "MediaDebug Companion"
+            )
+        }
+    }
+
     @Composable
     fun DeviceTopBar(
         viewModel: DeviceViewModel,
@@ -259,19 +279,23 @@ class MainActivity : ComponentActivity() {
         macAddress: String,
         firmware: String,
         model: String,
-        changelog: String
+        changelog: String,
+        title: String
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(16.dp)
+                .clickable {
+                    onTopBarClick()
+                }
         ) {
             val enabled by viewModel.buttonEnabled
             val text by viewModel.buttonText
 
             Text(
-                text = "MediaDev Companion",
+                text = "$title",
                 fontSize = 22.sp
             )
 
@@ -322,13 +346,13 @@ class MainActivity : ComponentActivity() {
     //Runs in it's own thread
     private fun downloadImage() {
         try {
-            var versionString =
+            val versionString =
                 "/releases/download/" + convertVersionToString(updFirmware) + "/update_version-" + convertVersionToString(
                     updFirmware
                 )
 
             //Byte.toString(updPartition);
-            val u = URL("https://github.com/snsdosen/" + updateDirFullName + versionString + ".bin")
+            val u = URL(Protocol.MD_REL_SERVER_URL + "/" + updateDirFullName + versionString + ".bin")
 
             //Open connection to a file
             val conection = u.openConnection()
@@ -356,8 +380,8 @@ class MainActivity : ComponentActivity() {
             updBinary = ByteArray(updateAllocSize)
             updChunks = updateAllocSize / Protocol.MD_CHUNK_SIZE
 
-            Log.d("BluetoothApp", "File size: " + Integer.toString(lenghtOfFile));
-            Log.d("BluetoothApp", "Allocated size: " + Integer.toString(updateAllocSize));
+            Log.d("BluetoothApp", "File size: " + Integer.toString(lenghtOfFile))
+            Log.d("BluetoothApp", "Allocated size: " + Integer.toString(updateAllocSize))
 
             //Buffer for downloaded data
             val input: InputStream = BufferedInputStream(u.openStream())
@@ -532,7 +556,13 @@ class MainActivity : ComponentActivity() {
 
         Thread(object : Runnable {
             override fun run() {
-                downloadJSON()
+
+                //Set directory name based on a device identifier
+                if (updateDirName == "ESP-A-1.0") updateDirFullName = "especiallyAlfa"
+
+                //If this is a debug build fetch from local server
+                if (mdBuildSignature == Protocol.MD_DEBUG_BUILD_SIGNATURE) verifyDebugBinary()
+                else downloadJSON()
             }
         }).start()
     }
@@ -626,13 +656,24 @@ class MainActivity : ComponentActivity() {
         })
     }
 
+    //Verify existence of a debug binary on debug server
+    private fun verifyDebugBinary(){
+        val fileName = Protocol.MD_DEBUG_SERVER + "/build/" + updateDirFullName + ".bin"
+
+        val `is`: InputStream
+
+        Log.d("BluetoothApp", fileName)
+
+        //Enable update if file exists
+        /*if(fileExists(fileName)){
+            Log.d("BluetoothApp", "exists")
+        }*/
+    }
+
     //Download update JSON and extract relevant info from it
     //Runs in it's own thread
     private fun downloadJSON() {
         val `is`: InputStream
-
-        //Set directory name based on a device identifier
-        if (updateDirName == "ESP-A-1.0") updateDirFullName = "especiallyAlfa"
 
         try {
             val u =
@@ -643,15 +684,15 @@ class MainActivity : ComponentActivity() {
 
             val dis = DataInputStream(`is`)
         } catch (mue: MalformedURLException) {
-            Log.d("BluetoothApp", "malformed url error", mue);
+            Log.d("BluetoothApp", "malformed url error", mue)
             downloadJSONFailed()
             return
         } catch (ioe: IOException) {
-            Log.d("BluetoothApp", "io error", ioe);
+            Log.d("BluetoothApp", "io error", ioe)
             downloadJSONFailed()
             return
         } catch (se: SecurityException) {
-            Log.d("BluetoothApp", "security error", se);
+            Log.d("BluetoothApp", "security error", se)
             downloadJSONFailed()
             return
         }
@@ -670,7 +711,7 @@ class MainActivity : ComponentActivity() {
             lenghtOfFile = jsonObj.getInt("size")
 
             //Check if the fetched version is newer then the current one
-            if (updFirmware > mdFirmware) {
+            if (updFirmware > mdFirmware || dbgUnlocked) {
                 updateAvailable()
 
                 //Get changelog
@@ -746,7 +787,8 @@ class MainActivity : ComponentActivity() {
                             firmware = deviceInfo.firmware,
                             model = deviceInfo.model,
                             viewModel = viewModel,
-                            changelog = deviceInfo.changelog
+                            changelog = deviceInfo.changelog,
+                            title = deviceInfo.title
                         )
                     }
                 ) { innerPadding ->
@@ -899,9 +941,19 @@ class MainActivity : ComponentActivity() {
             Protocol.MD_CMD_FIRMWARE -> {
                 mdFirmware = message.get(4).code.toByte()
 
+                //Check if this is the extended answer added in protocol 1.2
+                if (message.length == 8) {
+                    mdBuildSignature = message.get(5).code.toByte()
+                    mbBuildNumber = message.get(6).code.toByte()
+                        .toInt() or ((message.get(7).code.toByte()).toInt() shl 8)
+                }
+
                 runOnUiThread {
+                    var fbBuild = convertVersionToString(mdFirmware)
+
+                    if (mdBuildSignature == Protocol.MD_DEBUG_BUILD_SIGNATURE) fbBuild += " debug"
                     deviceInfo = deviceInfo.copy(
-                        firmware = convertVersionToString(mdFirmware)
+                        firmware = fbBuild
                     )
                 }
 
